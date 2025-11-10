@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Coaching (Con Cuentas)</title>
+    <!-- Carga Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Estilos para el modal y la superposición */
+        .modal-overlay {
+            visibility: hidden;
+            opacity: 0;
+            transition: visibility 0.2s, opacity 0.2s;
+        }
+        .modal-overlay.open {
+            visibility: visible;
+            opacity: 1;
+        }
+        .modal-content {
+            transform: scale(0.9);
+            opacity: 0;
+            transition: transform 0.2s, opacity 0.2s;
+        }
+        .modal-overlay.open .modal-content {
+            transform: scale(1);
+            opacity: 1;
+        }
+        /* Pequeña animación de spinner */
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .spinner {
+            border: 2px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #4F46E5; /* indigo-600 */
+            border-radius: 50%;
+            width: 1rem;
+            height: 1rem;
+            animation: spin 0.8s linear infinite;
+        }
+        /* Estilos para la notificación (toast) */
+        #notification {
+            visibility: hidden;
+            opacity: 0;
+            transform: translateY(2rem);
+            transition: all 0.3s ease-in-out;
+        }
+        #notification.show {
+            visibility: visible;
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans antialiased flex items-center justify-center min-h-screen">
+
+    <!-- Contenedor Principal -->
+    <div class="container mx-auto p-4 md:p-8 max-w-5xl w-full">
+
+        <!-- Cabecera y Autenticación -->
+        <header class="bg-white p-4 rounded-lg shadow-md mb-6 flex justify-between items-center">
+            <h1 class="text-xl md:text-2xl font-bold text-gray-800">Mi Plataforma de Coaching</h1>
+            <div id="auth-container" class="flex items-center space-x-3">
+                <!-- Estado de Carga (Default) -->
+                <div id="auth-loading" class="flex items-center space-x-2 text-gray-500">
+                    <div class="spinner"></div>
+                    <span>Cargando...</span>
+                </div>
+                <!-- Estado "Invitado" (No Logueado) -->
+                <div id="auth-guest" class="hidden">
+                    <span class="text-gray-600 mr-2">Hola, Invitado</span>
+                    <button id="login-btn-nav" class="bg-indigo-600 text-white px-3 py-1 rounded-md text-sm font-medium hover:bg-indigo-700 transition">Iniciar Sesión</button>
+                    <button id="register-btn-nav" class="bg-gray-200 text-gray-800 px-3 py-1 rounded-md text-sm font-medium hover:bg-gray-300 transition">Registrarse</button>
+                </div>
+                <!-- Estado "Logueado" -->
+                <div id="auth-user" class="hidden">
+                    <span id="user-email-display" class="text-gray-600 mr-2 text-sm"></span>
+                    <button id="logout-btn-nav" class="bg-red-500 text-white px-3 py-1 rounded-md text-sm font-medium hover:bg-red-600 transition">Cerrar Sesión</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Contenido principal (depende del estado de login) -->
+        <main id="main-content" class="bg-white p-6 rounded-lg shadow-md">
+            
+            <!-- Mensaje para usuarios no logueados -->
+            <div id="logged-out-view" class="text-center">
+                <h2 class="text-2xl font-semibold text-gray-700 mb-4">Bienvenido</h2>
+                <p class="text-gray-600">Por favor, <button id="login-btn-main" class="text-indigo-600 font-medium hover:underline">inicia sesión</button> o <button id="register-btn-main" class="text-indigo-600 font-medium hover:underline">regístrate</button> para ver tus sesiones de coaching.</p>
+            </div>
+
+            <!-- Contenido para usuarios logueados -->
+            <div id="logged-in-view" class="hidden">
+                <div class="flex justify-between items-center mb-6">
+                    <h2 class="text-2xl font-semibold text-gray-700">Tus Sesiones</h2>
+                    <button id="create-session-btn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg shadow font-medium hover:bg-indigo-700 transition duration-200">
+                        Crear Sesión
+                    </button>
+                </div>
+
+                <!-- Lista de Sesiones -->
+                <div id="sessions-list" class="space-y-4">
+                    <!-- Las sesiones se cargarán aquí desde Firebase -->
+                    <p id="sessions-loading" class="text-gray-500">Cargando sesiones...</p>
+                    <p id="sessions-empty" class="text-gray-500 hidden">No tienes sesiones programadas.</p>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Modal para Crear/Editar Sesión -->
+    <div id="session-modal" class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+        <div class="modal-content bg-white rounded-xl shadow-2xl p-6 md:p-8 w-full max-w-lg mx-auto">
+            <h3 id="modal-title" class="text-2xl font-bold text-gray-800 mb-6">Crear Nueva Sesión</h3>
+            <form id="session-form">
+                <!-- Campo oculto para el ID de sesión (para edición) -->
+                <input type="hidden" id="session-id">
+
+                <!-- Título -->
+                <div class="mb-4">
+                    <label for="title" class="block text-sm font-medium text-gray-700 mb-1">Título</label>
+                    <input type="text" id="title" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" required>
+                </div>
+
+                <!-- Fecha y Hora -->
+                <div class="mb-4">
+                    <label for="date" class="block text-sm font-medium text-gray-700 mb-1">Fecha y Hora</label>
+                    <input type="datetime-local" id="date" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" required>
+                </div>
+
+                <!-- Modalidad -->
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Modalidad</label>
+                    <select id="modality" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="presencial">Presencial</option>
+                        <option value="virtual">Virtual</option>
+                    </select>
+                </div>
+
+                <!-- Campo Condicional: Ubicación -->
+                <div id="location-field" class="mb-4 hidden">
+                    <label for="location" class="block text-sm font-medium text-gray-700 mb-1">Ubicación</label>
+                    <input type="text" id="location" placeholder="Ej: Consultorio 3" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </div>
+
+                <!-- Campo Condicional: Virtual -->
+                <div id="virtual-field" class="mb-4 p-4 bg-gray-50 rounded-lg border hidden">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Opciones Virtuales</label>
+                    <select id="virtual-type" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                        <option value="external">Ingresar Link Externo</option>
+                        <option value="daily">Crear Link (Daily.co)</option>
+                    </select>
+
+                    <div id="external-link-field" class="mt-3 hidden">
+                        <input type="url" id="external-link" placeholder="https://zoom.us/..." class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                    </div>
+                    
+                    <div id="daily-link-field" class="mt-3 hidden">
+                        <button type="button" id="generate-daily-link-btn" class="w-full bg-blue-500 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-600 transition flex items-center justify-center">
+                            <span id="daily-btn-text">Generar Link de Daily.co</span>
+                            <div id="daily-btn-spinner" class="spinner hidden"></div>
+                        </button>
+                        <input type="text" id="generated-link" class="w-full px-3 py-2 border border-gray-300 rounded-lg mt-2 bg-gray-100" readonly placeholder="El link aparecerá aquí...">
+                    </div>
+                </div>
+
+                <!-- Botones del Formulario -->
+                <div class="flex justify-end space-x-3 mt-8">
+                    <button type="button" id="cancel-btn" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition">Cancelar</button>
+                    <button type="submit" id="save-btn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition flex items-center justify-center">
+                        <span id="save-btn-text">Guardar</span>
+                        <div id="save-btn-spinner" class="spinner hidden"></div>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para Registrarse -->
+    <div id="register-modal" class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+        <div class="modal-content bg-white rounded-xl shadow-2xl p-6 md:p-8 w-full max-w-md mx-auto">
+            <h3 class="text-2xl font-bold text-gray-800 mb-6">Crear Cuenta</h3>
+            <form id="register-form">
+                <div class="mb-4">
+                    <label for="register-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="register-email" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" required>
+                </div>
+                <div class="mb-4">
+                    <label for="register-password" class="block text-sm font-medium text-gray-700 mb-1">Contraseña (mín. 6 caracteres)</label>
+                    <input type="password" id="register-password" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" required>
+                </div>
+                <p id="register-error" class="text-red-500 text-sm mb-4 hidden"></p>
+                <div class="flex justify-end space-x-3 mt-8">
+                    <button type="button" id="cancel-register-btn" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition">Cancelar</button>
+                    <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition">Registrarse</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para Iniciar Sesión -->
+    <div id="login-modal" class="modal-overlay fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+        <div class="modal-content bg-white rounded-xl shadow-2xl p-6 md:p-8 w-full max-w-md mx-auto">
+            <h3 class="text-2xl font-bold text-gray-800 mb-6">Iniciar Sesión</h3>
+            <form id="login-form">
+                <div class="mb-4">
+                    <label for="login-email" class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input type="email" id="login-email" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" required>
+                </div>
+                <div class="mb-4">
+                    <label for="login-password" class="block text-sm font-medium text-gray-700 mb-1">Contraseña</GTCX></label>
+                    <input type="password" id="login-password" class="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500" required>
+                </div>
+                <p id="login-error" class="text-red-500 text-sm mb-4 hidden"></p>
+                <div class="flex justify-end space-x-3 mt-8">
+                    <button type="button" id="cancel-login-btn" class="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg font-medium hover:bg-gray-300 transition">Cancelar</button>
+                    <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-indigo-700 transition">Iniciar Sesión</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Notificación (Toast) -->
+    <div id="notification" class="fixed bottom-5 right-5 bg-green-500 text-white px-5 py-3 rounded-lg shadow-lg">
+        <span id="notification-message">¡Acción completada!</span>
+    </div>
+
+
+    <!-- Scripts de Firebase (Módulos ES) -->
+    <script type="module">
+        // Importa las funciones que necesitas
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-app.js";
+        import { 
+            getAuth, 
+            onAuthStateChanged, 
+            createUserWithEmailAndPassword, 
+            signInWithEmailAndPassword, 
+            signOut 
+        } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-auth.js";
+        import { 
+            getFirestore, 
+            collection, 
+            addDoc, 
+            doc, 
+            setDoc, 
+            deleteDoc, 
+            onSnapshot, 
+            query,
+            where,
+            Timestamp 
+        } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-firestore.js";
+        import { 
+            getFunctions, 
+            httpsCallable 
+        } from "https://www.gstatic.com/firebasejs/10.12.3/firebase-functions.js";
+
+        // --- 1. CONFIGURACIÓN E INICIALIZACIÓN DE FIREBASE ---
+        // ¡¡IMPORTANTE!! Reemplaza esto con tu propia configuración de Firebase
+        // que obtienes de tu consola de Firebase.
+        const firebaseConfig = {
+            apiKey: "AIzaSy...TU_API_KEY",
+            authDomain: "mi-app-coaching-1df37.firebaseapp.com",
+            projectId: "mi-app-coaching-1df37",
+            storageBucket: "mi-app-coaching-1df37.appspot.com",
+            messagingSenderId: "TUS_DATOS",
+            appId: "TUS_DATOS"
+        };
+
+        // Inicializar Firebase
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const functions = getFunctions(app, 'us-central1'); // Asegúrate que la región sea correcta
+
+        // Variables globales
+        let currentUserId = null;
+        let unsubscribeSessions = null; // Para limpiar el listener de Firestore
+
+        // --- 2. MANEJO DE NOTIFICACIONES ---
+        const notification = document.getElementById('notification');
+        const notificationMessage = document.getElementById('notification-message');
+        let notificationTimer;
+
+        function showNotification(message, isError = false) {
+            notificationMessage.textContent = message;
+            notification.className = "fixed bottom-5 right-5 px-5 py-3 rounded-lg shadow-lg text-white"; // Resetea clases
+            if (isError) {
+                notification.classList.add('bg-red-500');
+            } else {
+                notification.classList.add('bg-green-500');
+            }
+            notification.classList.add('show');
+
+            clearTimeout(notificationTimer);
+            notificationTimer = setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+
+        // --- 3. MANEJO DE AUTENTICACIÓN (LOGIN/REGISTER/LOGOUT) ---
+        
+        // Elementos de UI de Autenticación
+        const authLoading = document.getElementById('auth-loading');
+        const authGuest = document.getElementById('auth-guest');
+        const authUser = document.getElementById('auth-user');
+        const userEmailDisplay = document.getElementById('user-email-display');
+        const loggedOutView = document.getElementById('logged-out-view');
+        const loggedInView = document.getElementById('logged-in-view');
+
+        // Modales de Auth
+        const loginModal = document.getElementById('login-modal');
+        const registerModal = document.getElementById('register-modal');
+        const loginForm = document.getElementById('login-form');
+        const registerForm = document.getElementById('register-form');
+        const loginError = document.getElementById('login-error');
+        const registerError = document.getElementById('register-error');
+
+        // Botones que abren los modales de Auth
+        document.querySelectorAll('#login-btn-nav, #login-btn-main').forEach(btn => {
+            btn.addEventListener('click', () => loginModal.classList.add('open'));
+        });
+        document.querySelectorAll('#register-btn-nav, #register-btn-main').forEach(btn => {
+            btn.addEventListener('click', () => registerModal.classList.add('open'));
+        });
+
+        // Botones que cierran los modales de Auth
+        document.querySelectorAll('#cancel-login-btn, #cancel-register-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                loginModal.classList.remove('open');
+                registerModal.classList.remove('open');
+            });
+        });
+
+        // El "Cerebro" de la Autenticación
+        onAuthStateChanged(auth, (user) => {
+            authLoading.classList.add('hidden'); // Oculta el spinner
+
+            if (user) {
+                // Usuario está logueado
+                currentUserId = user.uid;
+                userEmailDisplay.textContent = user.email;
+
+                authGuest.classList.add('hidden');
+                authUser.classList.remove('hidden');
+                loggedOutView.classList.add('hidden');
+                loggedInView.classList.remove('hidden');
+
+                // ¡Empezar a cargar los datos del usuario!
+                loadUserSessions();
+
+            } else {
+                // Usuario no está logueado
+                currentUserId = null;
+
+                authGuest.classList.remove('hidden');
+                authUser.classList.add('hidden');
+                loggedOutView.classList.remove('hidden');
+                loggedInView.classList.add('hidden');
+
+                // Si había un listener de sesiones, limpiarlo
+                if (unsubscribeSessions) {
+                    unsubscribeSessions();
+                    unsubscribeSessions = null;
+                }
+                document.getElementById('sessions-list').innerHTML = ''; // Limpiar lista
+            }
+        });
+
+        // Formulario de Registro
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('register-email').value;
+            const password = document.getElementById('register-password').value;
+            
+            try {
+                await createUserWithEmailAndPassword(auth, email, password);
+                registerModal.classList.remove('open');
+                registerForm.reset();
+                registerError.classList.add('hidden');
+                showNotification('¡Cuenta creada! Por favor, inicia sesión.');
+                // El "procedimiento automático" (Cloud Function) se encargará de crear el perfil en Firestore
+            } catch (error) {
+                console.error("Error al registrar:", error);
+                registerError.textContent = getFirebaseAuthErrorMessage(error.code);
+                registerError.classList.remove('hidden');
+            }
+        });
+
+        // Formulario de Login
+        loginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('login-email').value;
+            const password = document.getElementById('login-password').value;
+            
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                loginModal.classList.remove('open');
+                loginForm.reset();
+                loginError.classList.add('hidden');
+                showNotification('¡Has iniciado sesión!');
+                // onAuthStateChanged se encargará del resto
+            } catch (error) {
+                console.error("Error al iniciar sesión:", error);
+                loginError.textContent = getFirebaseAuthErrorMessage(error.code);
+                loginError.classList.remove('hidden');
+            }
+        });
+
+        // Botón de Cerrar Sesión
+        document.getElementById('logout-btn-nav').addEventListener('click', async () => {
+            try {
+                await signOut(auth);
+                showNotification('Has cerrado sesión.');
+                // onAuthStateChanged se encargará del resto
+            } catch (error) {
+                console.error("Error al cerrar sesión:", error);
+                showNotification('Error al cerrar sesión.', true);
+            }
+        });
+
+        // Helper para traducir errores de Firebase
+        function getFirebaseAuthErrorMessage(code) {
+            switch (code) {
+                case 'auth/invalid-email':
+                    return 'El formato del email es incorrecto.';
+                case 'auth/weak-password':
+                    return 'La contraseña debe tener al menos 6 caracteres.';
+                case 'auth/email-already-in-use':
+                    return 'Este email ya está registrado.';
+                case 'auth/invalid-credential':
+                case 'auth/user-not-found':
+                case 'auth/wrong-password':
+                    return 'Email o contraseña incorrectos.';
+                default:
+                    return 'Ocurrió un error. Inténtalo de nuevo.';
+            }
+        }
+
+
+        // --- 4. MANEJO DE SESIONES (FIRESTORE) ---
+
+        const sessionModal = document.getElementById('session-modal');
+        const sessionForm = document.getElementById('session-form');
+        const modality = document.getElementById('modality');
+        const locationField = document.getElementById('location-field');
+        const virtualField = document.getElementById('virtual-field');
+        const virtualType = document.getElementById('virtual-type');
+        const externalLinkField = document.getElementById('external-link-field');
+        const dailyLinkField = document.getElementById('daily-link-field');
+        
+        // Abrir modal para crear
+        document.getElementById('create-session-btn').addEventListener('click', () => {
+            sessionForm.reset();
+            document.getElementById('session-id').value = '';
+            document.getElementById('modal-title').textContent = 'Crear Nueva Sesión';
+            modalityChanged(); // Resetea campos condicionales
+            sessionModal.classList.add('open');
+        });
+
+        // Cerrar modal
+        document.getElementById('cancel-btn').addEventListener('click', () => {
+            sessionModal.classList.remove('open');
+        });
+
+        // Lógica de campos condicionales
+        modality.addEventListener('change', modalityChanged);
+        virtualType.addEventListener('change', virtualTypeChanged);
+
+        function modalityChanged() {
+            if (modality.value === 'virtual') {
+                locationField.classList.add('hidden');
+                virtualField.classList.remove('hidden');
+            } else {
+                locationField.classList.remove('hidden');
+                virtualField.classList.add('hidden');
+            }
+            virtualTypeChanged(); // Re-evaluar sub-campos
+        }
+
+        function virtualTypeChanged() {
+            if (modality.value === 'virtual' && virtualType.value === 'external') {
+                externalLinkField.classList.remove('hidden');
+                dailyLinkField.classList.add('hidden');
+            } else if (modality.value === 'virtual' && virtualType.value === 'daily') {
+                externalLinkField.classList.add('hidden');
+                dailyLinkField.classList.remove('hidden');
+            } else {
+                externalLinkField.classList.add('hidden');
+                dailyLinkField.classList.add('hidden');
+            }
+        }
+
+        // Cargar Sesiones del Usuario Logueado
+        function loadUserSessions() {
+            if (!currentUserId) return;
+
+            // Limpiar listener anterior si existe
+            if (unsubscribeSessions) {
+                unsubscribeSessions();
+            }
+
+            const sessionsList = document.getElementById('sessions-list');
+            const sessionsLoading = document.getElementById('sessions-loading');
+            const sessionsEmpty = document.getElementById('sessions-empty');
+            
+            // Creamos una consulta a la colección 'coaching_sessions'
+            // donde el campo 'userId' sea igual al del usuario logueado.
+            // ¡¡IMPORTANTE!! Esto asume que el perfil 'paciente' crea sus propias sesiones.
+            // Si el 'terapeuta' las crea, necesitaremos una lógica de roles más avanzada.
+            // Por ahora, para probar, guardaremos la sesión con el ID del usuario que la crea.
+            const q = query(collection(db, 'coaching_sessions'), where("userId", "==", currentUserId));
+            
+            sessionsLoading.classList.remove('hidden');
+            sessionsEmpty.classList.add('hidden');
+
+            unsubscribeSessions = onSnapshot(q, (snapshot) => {
+                sessionsLoading.classList.add('hidden');
+                if (snapshot.empty) {
+                    sessionsEmpty.classList.remove('hidden');
+                    sessionsList.innerHTML = ''; // Limpiar por si acaso
+                } else {
+                    sessionsEmpty.classList.add('hidden');
+                    sessionsList.innerHTML = ''; // Limpiar antes de re-pintar
+                    snapshot.forEach(doc => {
+                        const session = doc.data();
+                        const sessionId = doc.id;
+                        sessionsList.appendChild(createSessionElement(sessionId, session));
+                    });
+                }
+            }, (error) => {
+                console.error("Error al cargar sesiones:", error);
+                showNotification("Error al cargar las sesiones.", true);
+                sessionsLoading.classList.add('hidden');
+            });
+        }
+
+        // Crear elemento HTML para una sesión
+        function createSessionElement(id, session) {
+            const el = document.createElement('div');
+            el.className = 'p-4 border rounded-lg bg-white shadow-sm flex justify-between items-start';
+            
+            let details = `<h4 class="font-bold text-lg text-indigo-700">${session.title}</h4>`;
+            details += `<p class="text-gray-600 text-sm">${new Date(session.date).toLocaleString('es-ES')}</p>`;
+
+            if (session.modality === 'presencial') {
+                details += `<p class="text-gray-500 text-sm mt-1"><strong>Lugar:</strong> ${session.location}</p>`;
+            } else {
+                details += `<p class="text-gray-500 text-sm mt-1"><strong>Modalidad:</strong> Virtual</p>`;
+                if (session.link) {
+                    details += `<a href="${session.link}" target="_blank" class="text-blue-500 hover:underline text-sm">Unirse a la sesión</a>`;
+                }
+            }
+
+            el.innerHTML = `
+                <div>${details}</div>
+                <div class="flex-shrink-0 space-x-2">
+                    <button data-id="${id}" class="edit-btn text-blue-500 hover:text-blue-700">Editar</button>
+                    <button data-id="${id}" class="delete-btn text-red-500 hover:text-red-700">Eliminar</button>
+                </div>
+            `;
+            
+            // Añadir listeners para los botones
+            el.querySelector('.edit-btn').addEventListener('click', () => editSession(id, session));
+            el.querySelector('.delete-btn').addEventListener('click', () => deleteSession(id));
+
+            return el;
+        }
+
+        // Guardar o Actualizar Sesión
+        sessionForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            if (!currentUserId) {
+                showNotification("Debes iniciar sesión para guardar.", true);
+                return;
+            }
+
+            setLoading(document.getElementById('save-btn'), 'save-btn-text', 'save-btn-spinner', true);
+            
+            const sessionId = document.getElementById('session-id').value;
+            
+            // Construir el objeto de sesión
+            const sessionData = {
+                userId: currentUserId, // ¡Vinculamos la sesión al usuario!
+                title: document.getElementById('title').value,
+                date: document.getElementById('date').value,
+                modality: document.getElementById('modality').value,
+                location: document.getElementById('location').value || null,
+                link: document.getElementById('generated-link').value || document.getElementById('external-link').value || null
+            };
+
+            try {
+                if (sessionId) {
+                    // Actualizando
+                    const sessionRef = doc(db, 'coaching_sessions', sessionId);
+                    await setDoc(sessionRef, sessionData, { merge: true }); // merge: true para no sobrescribir otros campos si los hubiera
+                    showNotification('¡Sesión actualizada!');
+                } else {
+                    // Creando
+                    await addDoc(collection(db, 'coaching_sessions'), sessionData);
+                    showNotification('¡Sesión creada!');
+                }
+                sessionModal.classList.remove('open');
+                sessionForm.reset();
+            } catch (error) {
+                console.error("Error al guardar sesión:", error);
+                showNotification("Error al guardar la sesión.", true);
+            } finally {
+                setLoading(document.getElementById('save-btn'), 'save-btn-text', 'save-btn-spinner', false);
+            }
+        });
+
+        // Editar Sesión
+        function editSession(id, session) {
+            document.getElementById('modal-title').textContent = 'Editar Sesión';
+            document.getElementById('session-id').value = id;
+            document.getElementById('title').value = session.title;
+            document.getElementById('date').value = session.date;
+            document.getElementById('modality').value = session.modality;
+            
+            if (session.modality === 'presencial') {
+                document.getElementById('location').value = session.location;
+            } else {
+                if (session.link && (session.link.includes('daily.co') || session.link.includes('generated-link-placeholder'))) { // Asumimos que es un link de Daily
+                    document.getElementById('virtual-type').value = 'daily';
+                    document.getElementById('generated-link').value = session.link;
+                } else {
+                    document.getElementById('virtual-type').value = 'external';
+                    document.getElementById('external-link').value = session.link;
+                }
+            }
+            
+            modalityChanged(); // Actualiza la UI de los campos condicionales
+            sessionModal.classList.add('open');
+        }
+
+        // Eliminar Sesión
+        async function deleteSession(id) {
+            // Sería ideal un modal de confirmación aquí, pero por simplicidad...
+            if (confirm('¿Estás seguro de que quieres eliminar esta sesión?')) {
+                try {
+                    await deleteDoc(doc(db, 'coaching_sessions', id));
+                    showNotification('Sesión eliminada.');
+                    // El listener onSnapshot se encargará de refrescar la UI
+                } catch (error) {
+                    console.error("Error al eliminar sesión:", error);
+                    showNotification('Error al eliminar la sesión.', true);
+                }
+            }
+        }
+
+        // --- 5. LLAMADA A CLOUD FUNCTION (DAILY.CO) ---
+
+        const generateDailyLinkBtn = document.getElementById('generate-daily-link-btn');
+        const generatedLinkInput = document.getElementById('generated-link');
+
+        generateDailyLinkBtn.addEventListener('click', async () => {
+            setLoading(generateDailyLinkBtn, 'daily-btn-text', 'daily-btn-spinner', true);
+            generatedLinkInput.value = 'Generando...';
+
+            try {
+                // Llamamos a la Cloud Function 'createCoachingRoom'
+                const createCoachingRoom = httpsCallable(functions, 'createCoachingRoom');
+                const result = await createCoachingRoom();
+                
+                // La función V2 devuelve los datos en result.data
+                const roomUrl = result.data.roomUrl;
+                generatedLinkInput.value = roomUrl;
+
+            } catch (error) {
+                console.error("Error detallado al llamar Cloud Function:", error);
+                generatedLinkInput.value = ''; // Limpiar en caso de error
+                
+                // --- Pistas de Depuración Mejoradas ---
+                let errorMessage = 'Error al generar link.';
+                if (error.code === 'internal') {
+                    errorMessage = 'Problema en el servidor. Revisa los logs de la función.';
+                    console.error("--- Pista de Depuración (INTERNAL Error) ---");
+                    console.error("Este error casi siempre significa que la función 'createCoachingRoom' en el back-end falló.");
+                    console.error("Causas Comunes: 1) La API Key de Daily.co es incorrecta. 2) La API Key no se cargó (revisa .env). 3) Error en la API de Daily.co.");
+                    console.error("--- Fin de la Pista ---");
+                } else if (error.code === 'unauthenticated') {
+                    errorMessage = 'Error de autenticación del servidor. (API Key Inválida)';
+                }
+                
+                showNotification(errorMessage, true);
+
+            } finally {
+                setLoading(generateDailyLinkBtn, 'daily-btn-text', 'daily-btn-spinner', false);
+            }
+        });
+
+
+        // --- 6. HELPERS DE UI ---
+        function setLoading(button, textId, spinnerId, isLoading) {
+            const textEl = document.getElementById(textId);
+            const spinnerEl = document.getElementById(spinnerId);
+            
+            if (isLoading) {
+                button.disabled = true;
+                textEl.classList.add('hidden');
+                spinnerEl.classList.remove('hidden');
+            } else {
+                button.disabled = false;
+                textEl.classList.remove('hidden');
+                spinnerEl.classList.add('hidden');
+            }
+        }
+
+    </script>
+</body>
+</html>
