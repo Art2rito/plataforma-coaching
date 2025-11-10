@@ -21,27 +21,24 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'yarn'
-          cache-dependency-path: 'functions/yarn.lock'
+          cache: 'yarn' # Configura el caché para yarn
 
       # 4. Instala el "camión" (firebase-tools)
       - name: Instalar Firebase Tools
         run: sudo npm install -g firebase-tools
 
-      # 5. Instala los "ingredientes" (con yarn)
+      # 5. ¡LA CLAVE! Instala ingredientes (SIN "frozen-lockfile")
+      #    Esto leerá el package.json V2 y creará un yarn.lock NUEVO y LIMPIO
       - name: Instalar dependencias de functions
-        working-directory: ./functions # Le decimos que trabaje dentro de /functions
-        run: yarn install --frozen-lockfile
+        working-directory: ./functions
+        run: yarn install
 
       # 6. Crear el archivo .env para el despliegue
-      #    El robot toma el "Secret" de GitHub (DAILY_APIKEY)
-      #    y lo escribe en el archivo .env que el deployer de Firebase espera.
       - name: Crear archivo .env
         working-directory: ./functions
         run: echo "DAILY_APIKEY=${{ secrets.DAILY_APIKEY }}" > .env.mi-app-coaching-1df37
 
       # 7. ¡El Despliegue Final!
-      #    Usa el "Token" de Firebase (el otro secret) para autenticarse
       - name: Desplegar en Firebase
         run: |
           firebase deploy --only functions --token "${{ secrets.FIREBASE_SERVICE_ACCOUNT_MI_APP_COACHING_1DF37 }}"
