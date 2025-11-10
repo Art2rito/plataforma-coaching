@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'functions/**'
+      - '.github/workflows/deploy.yml' # ¡Trigger nuevo!
 
 jobs:
   deploy_functions:
@@ -21,17 +22,19 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'yarn' # Configura el caché para yarn
+          cache: 'yarn'
+          # --- ¡AQUÍ ESTÁ LA CORRECCIÓN! ---
+          # Le decimos que se base en el package.json, no en el yarn.lock
+          cache-dependency-path: 'functions/package.json'
 
       # 4. Instala el "camión" (firebase-tools)
       - name: Instalar Firebase Tools
         run: sudo npm install -g firebase-tools
 
-      # 5. ¡LA CLAVE! Instala ingredientes (SIN "frozen-lockfile")
-      #    Esto leerá el package.json V2 y creará un yarn.lock NUEVO y LIMPIO
+      # 5. Instala los "ingredientes" (con yarn)
       - name: Instalar dependencias de functions
         working-directory: ./functions
-        run: yarn install
+        run: yarn install # ¡Sin "frozen-lockfile" para que genere uno nuevo!
 
       # 6. Crear el archivo .env para el despliegue
       - name: Crear archivo .env
