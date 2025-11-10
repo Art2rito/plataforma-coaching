@@ -3,22 +3,9 @@
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"
   },
-  "functions": [
-    {
-      "source": "functions",
-      "codebase": "default",
-      "ignore": [
-        "node_modules",
-        ".git",
-        "firebase-debug.log",
-        "firebase-debug.*.log",
-        "*.local"
-      ],
-      "predeploy": [
-        "yarn --cwd functions install --frozen-lockfile"
-      ]
-    }
-  ],
+  "functions": {
+    "source": "functions"
+  },
   "hosting": {
     "public": "public",
     "ignore": [
@@ -32,6 +19,5 @@
         "destination": "/index.html"
       }
     ]
-  },
-  "extensions": {}
+  }
 }
