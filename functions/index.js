@@ -120,4 +120,4 @@ exports.createProfileOnRegister = onUserCreate(async (user) => {
         console.error(`Error al crear el perfil para ${uid}:`, error);
         return null;
     }
-});
+});// Trigger para el robot
