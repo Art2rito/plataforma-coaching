@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      # Disparadores: si cambia la "cocina" O este "manual" O el "firebase.json"
       - 'functions/**'
       - '.github/workflows/deploy.yml'
       - 'firebase.json'
